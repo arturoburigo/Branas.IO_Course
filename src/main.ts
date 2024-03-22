@@ -62,6 +62,7 @@ export async function signup(input: any): Promise<any> {
         !!input.isDriver,
       ],
     );
+
     return {
       accountId,
     };
@@ -92,38 +93,68 @@ export async function getAccount(accountId: string) {
   return account;
 }
 
-export async function requestRide(
-  passenger_id: string,
-  userLatitude: number,
-  userLongitude: number,
-  destinationLongitude: number,
-  destinationLatitude: number,
-) {
+export interface requestRideInterface {
+  account_id: string;
+  userLatitude: number;
+  userLongitude: number;
+  destinationLongitude: number;
+  destinationLatitude: number;
+}
+
+export async function requestRide({
+  account_id,
+  destinationLatitude,
+  destinationLongitude,
+  userLatitude,
+  userLongitude,
+}: requestRideInterface) {
   const connection = pgp()("postgres://postgres:123456@localhost:5432/app");
   try {
-    const ride_id = crypto.randomUUID();
-    const rideRequest = await connection.query(
-      "select * from cccat14.ride where passenger_id = $1",
-      passenger_id,
+    const account = await connection.oneOrNone(
+      "SELECT * FROM cccat14.account WHERE account_id = $1",
+      account_id,
     );
-    if (!passenger_id) throw new Error("account doesnt exist");
+    if (!account) throw new Error("Account doesn't exist");
+
+    const checkIfIsPassenger = await connection.oneOrNone(
+      "SELECT * FROM cccat14.account WHERE account_id = $1 AND is_passenger = TRUE",
+      [account_id],
+    );
+    if (!checkIfIsPassenger) throw new Error("Account isn't a passenger");
+    const existingRide = await connection.oneOrNone(
+      "SELECT * FROM cccat14.ride WHERE passenger_id = $1 AND status != 'completed'",
+      account_id,
+    );
+    console.log(existingRide);
+    if (existingRide) throw new Error("Passenger already has an ongoing ride");
+    const ride_id = crypto.randomUUID();
     await connection.query(
       "INSERT INTO cccat14.ride (ride_id, passenger_id, status, from_lat, from_long, to_lat, to_long, date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
       [
-        ride_id, // Substitua pelas variáveis apropriadas que você definiu em seu código
-        passenger_id,
+        ride_id,
+        account_id,
         "requested",
-        userLatitude, // Substitua pelas variáveis apropriadas que você definiu em seu código
+        userLatitude,
         userLongitude,
-        destinationLatitude, // Substitua pelas variáveis apropriadas que você definiu em seu código
+        destinationLatitude,
         destinationLongitude,
         new Date(),
       ],
     );
-    {
-      return rideRequest;
-    }
+    return ride_id;
+  } catch (error) {
+    throw error;
   } finally {
     await connection.$pool.end();
   }
+}
+
+export async function getRide(ride_id: string) {
+  const connection = pgp()("postgres://postgres:123456@localhost:5432/app");
+  const ride = await connection.oneOrNone(
+    "select * from cccat14.ride where ride_id = $1",
+    ride_id,
+  );
+  await connection.$pool.end();
+  return ride;
 }
